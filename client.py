@@ -16,7 +16,7 @@ def receive_messages(sock):
 
 
 def start_client():
-    # 1.1 Initialize TCP Socket
+    # Initialize TCP Socket
     client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     try:
         client.connect(('127.0.0.1', 65432))
@@ -24,7 +24,7 @@ def start_client():
         print("Error: Server is offline.")
         return
 
-    # --- Registration Handshake Phase ---
+    # Registration Handshake Phase
     while True:
         username = input("Enter username: ").strip()
 
@@ -47,8 +47,8 @@ def start_client():
             print("Lost connection to server during registration.")
             return
 
-    # --- Start Communication Phase ---
-    # 3.3 Start a background daemon thread to receive messages
+    # Start Communication Phase
+    # Start a background daemon thread to receive messages
     threading.Thread(target=receive_messages, args=(client,), daemon=True).start()
 
     current_target = None  # Tracks the person currently being chatted with
@@ -81,7 +81,7 @@ def start_client():
             continue
 
         # Command: Close the application entirely
-        if msg.lower() == 'quitApp':
+        if msg.lower() == 'quitapp':
             print("Exiting... Goodbye!")
             client.close()
             break
@@ -117,7 +117,7 @@ def start_client():
             print("Error: No target selected. Use 'username:message' to start.")
             continue
 
-        # 2.2.1 Automatically send message to the last selected target
+        # Automatically send message to the last selected target
         payload = f"{current_target}:{msg}"
         client.send(payload.encode("utf-8"))
 
