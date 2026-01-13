@@ -2,133 +2,140 @@ import socket
 import threading
 import time
 
+# TODO - write your server ip address here
+HOST = '127.0.0.1'
+PORT = 65432
 
 def receive_messages(sock):
-    """
-    Background daemon thread function.
-    Continuously listens for incoming messages from the server.
-    """
+    """Background function that continuously receives incoming messages from the server."""
     while True:
         try:
-            # Receive up to 1024 bytes and decode to UTF-8
-            msg = sock.recv(1024).decode('utf-8')
+            data = sock.recv(1024)
+
+            # If the connection is closed gracefully, recv() returns b'' and we exit the loop.
+            if not data:
+                print("\n[System] Server closed the connection.")
+                break
+
+            msg = data.decode('utf-8', errors='ignore')
             if msg:
-                # Print the received message and keep the prompt clean
+                # Print the received message on a new line
                 print(f"\n{msg}")
-        except:
-            # Triggered if the socket is closed or connection is lost
+        except OSError:
             print("\n[System] Connection to the server was lost.")
             break
 
 
 def start_client():
-    """
-    Main client logic including reconnection loops, registration,
-    and the primary messaging interface.
-    """
-    while True:  # Outer loop for persistent reconnection logic
-        client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        try:
-            print("[System] Attempting to connect to server...")
-            client.connect(('127.0.0.1', 65432))
-            print("[System] Connected successfully!")
+    # Initialize a TCP socket
+    # while True:  # Optional outer loop for reconnect logic (currently disabled)
+    client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    try:
+        print("[System] Attempting to connect to server...")
+        client.connect((HOST, PORT))
+        print("[System] Connected successfully!")
 
-            # --- Registration Handshake Phase ---
-            while True:
-                username = input("Enter username: ").strip()
+        # Registration / handshake phase
+        while True:
+            username = input("Enter username: ").strip()
 
-                if not username:
-                    print("Username cannot be empty. Please type something.")
-                    continue
+            # Local validation: if the user pressed Enter, do not send anything to the server
+            if not username:
+                print("Username cannot be empty. Please type something.")
+                continue
 
-                client.send(username.encode('utf-8'))
+            client.send(username.encode('utf-8'))
 
-                try:
-                    # Wait for server approval (OK:...) or rejection (ERROR:...)
-                    response = client.recv(1024).decode('utf-8')
-                    if response.startswith("OK:"):
-                        print(f"Success: {response}")
-                        break
-                    else:
-                        print(f"Server refused: {response}")
-                except socket.error:
-                    print("Lost connection to server during registration.")
+            try:
+                # Wait for server validation (OK or ERROR)
+                response = client.recv(1024).decode('utf-8')
+                if response.startswith("OK:"):
+                    print(f"Success: {response}")
                     break
+                else:
+                    print(f"Server refused: {response}")
+            except socket.error:
+                print("Lost connection to server during registration.")
+                break
 
-            # --- Communication Phase ---
-            # Create a background thread to handle incoming data
-            threading.Thread(target=receive_messages, args=(client,), daemon=True).start()
+        # Start communication phase:
+        # Start a background daemon thread to receive messages
+        threading.Thread(target=receive_messages, args=(client,), daemon=True).start()
 
-            current_target = None  # Persistent target for auto-routing messages
+        current_target = None  # Tracks the user currently being chatted with
 
-            print("\n--- Welcome to the Chat ---")
-            print("Commands:")
-            print("  username:message  -> Start a new conversation")
-            print("  exit              -> Disconnect from current conversation")
-            print("  quitApp           -> Close the application")
-            print("---------------------------\n")
+        print("\n--- Welcome to the Chat ---")
+        print("Commands:")
+        print("  username:message  -> Start a new conversation")
+        print("  exit              -> Disconnect from the current conversation")
+        print("  quitApp           -> Close the application")
+        print("---------------------------\n")
 
-            while True:
-                prompt = f"[{current_target if current_target else 'No Target'}] > "
-                msg = input(prompt).strip()
+        while True:
+            # Display the prompt based on the current target
+            prompt = f"[{current_target if current_target else 'No Target'}] > "
+            msg = input(prompt).strip()
 
-                if not msg:
+            if not msg:
+                continue
+
+            # Command: exit the current conversation
+            if msg.lower() == 'exit':
+                if current_target:
+                    print(f"Disconnected from {current_target}. Returning to main menu.")
+                    # Optional: inform the other side that you left
+                    goodbye = f"{current_target}:[System] {username} left the conversation."
+                    client.send(goodbye.encode("utf-8"))
+                    current_target = None
+                else:
+                    print("You are not currently in a conversation.")
+                continue
+
+            # Command: close the application entirely
+            if msg.lower() == 'quitapp':
+                print("Exiting... Goodbye!")
+                client.close()
+                return
+
+            # Prevent switching targets without leaving the current chat first
+            if ':' in msg and current_target:
+                print(f"Error: You cannot talk with another person while chatting with {current_target}.")
+                print("Please type 'exit' first to switch targets.")
+                continue
+
+            # New conversation format: target_user:message
+            if ":" in msg:
+                target_user, message_content = msg.split(":", 1)
+                target_user = target_user.strip()
+
+                # Prevent sending messages to yourself
+                if target_user == username:
+                    print('Error: You cannot talk to yourself.')
                     continue
 
-                # Disconnect from current partner but stay online
-                if msg.lower() == 'exit':
-                    if current_target:
-                        print(f"Disconnected from {current_target}. Returning to main menu.")
-                        goodbye = f"{current_target}:[System] {username} left the conversation."
-                        client.send(goodbye.encode("utf-8"))
-                        current_target = None
-                    else:
-                        print("You are not currently in a conversation.")
+                message_content = message_content.strip()
+
+                if not target_user or not message_content:
+                    print('Invalid format. Use target_user:message')
                     continue
 
-                # Close the socket and terminate the client application
-                if msg.lower() == 'quitapp':
-                    print("Exiting... Goodbye!")
-                    client.close()
-                    return
+                current_target = target_user
+                client.send(msg.encode("utf-8"))
+                continue
 
-                # Prevent switching targets without typing 'exit'
-                if ':' in msg and current_target:
-                    print(f"Error: You cannot talk with another person while chatting with {current_target}.")
-                    print("Please type 'exit' first to switch targets.")
-                    continue
+            # Routing logic: if no target is selected yet
+            if current_target is None:
+                print("Error: No target selected. Use 'username:message' to start.")
+                continue
 
-                # Routing: Set new target if ':' is used
-                if ":" in msg:
-                    target_user, message_content = msg.split(":", 1)
-                    target_user = target_user.strip()
+            # Automatically send messages to the last selected target
+            payload = f"{current_target}:{msg}"
+            client.send(payload.encode("utf-8"))
 
-                    if target_user == username:
-                        print('Error: You cannot talk to yourself.')
-                        continue
+    except (socket.error, ConnectionResetError, ConnectionRefusedError, BrokenPipeError, OSError):
+        print("\n[System] Connection lost. Closing the application.")
+        client.close()
 
-                    if not target_user or not message_content.strip():
-                        print('Invalid format. Use target_user:message')
-                        continue
-
-                    current_target = target_user
-                    client.send(msg.encode("utf-8"))
-                    continue
-
-                # Auto-routing: Send message to current active target
-                if current_target is None:
-                    print("Error: No target selected. Use 'username:message' to start.")
-                    continue
-
-                payload = f"{current_target}:{msg}"
-                client.send(payload.encode("utf-8"))
-
-        except (socket.error, ConnectionResetError, ConnectionRefusedError):
-            # Reconnection logic triggered on network failure
-            print("\n[System] Connection lost. Retrying in 5 seconds...")
-            client.close()
-            time.sleep(5)
-            continue
 
 if __name__ == "__main__":
     start_client()
