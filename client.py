@@ -2,7 +2,10 @@ import socket
 import threading
 import time
 
-# TODO - write your server ip address here
+# צביה איסחקוב 322577669
+# אורטל גברילוב 214442550
+
+# TODO - write your server ip address here in HOST
 HOST = '127.0.0.1'
 PORT = 65432
 
@@ -35,7 +38,7 @@ def start_client():
         client.connect((HOST, PORT))
         print("[System] Connected successfully!")
 
-        # Registration / handshake phase
+        # Registration
         while True:
             username = input("Enter username: ").strip()
 
